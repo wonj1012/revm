@@ -113,5 +113,13 @@ pub fn output<EXT, DB: Database>(
         }
     };
 
-    Ok(ResultAndState { result, state })
+    let metrics = instruction_result.opcode_metrics;
+
+    println!("metrics: {:?}", metrics);
+
+    Ok(ResultAndState {
+        result,
+        state,
+        metrics,
+    })
 }

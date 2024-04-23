@@ -234,6 +234,7 @@ impl<DB: Database> InnerEvmContext<DB> {
                     result: e,
                     gas,
                     output: Bytes::new(),
+                    opcode_metrics: Default::default(),
                 },
                 None,
             ))

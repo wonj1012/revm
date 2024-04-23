@@ -9,13 +9,15 @@ pub use shared_memory::{next_multiple_of_32, SharedMemory, EMPTY_SHARED_MEMORY};
 pub use stack::{Stack, STACK_LIMIT};
 
 use crate::{
-    primitives::Bytes, push, push_b256, return_ok, return_revert, CallInputs, CallOutcome,
-    CreateInputs, CreateOutcome, Gas, Host, InstructionResult,
+    primitives::{Bytes, OpcodeMetrics},
+    push, push_b256, return_ok, return_revert, CallInputs, CallOutcome, CreateInputs,
+    CreateOutcome, Gas, Host, InstructionResult,
 };
 use core::cmp::min;
-use revm_primitives::U256;
+use revm_primitives::{ExecutionMetric, U256};
 use std::borrow::ToOwned;
 use std::boxed::Box;
+use std::time::Instant;
 
 /// EVM bytecode interpreter.
 #[derive(Debug)]
@@ -49,6 +51,11 @@ pub struct Interpreter {
     /// Set inside CALL or CREATE instructions and RETURN or REVERT instructions. Additionally those instructions will set
     /// InstructionResult to CallOrCreate/Return/Revert so we know the reason.
     pub next_action: InterpreterAction,
+
+    /// Metrics for each opcode.
+    /// It contains the count of times, the total time spent, and the total gas used executing the opcode.
+    /// The metrics are collected during the execution of the interpreter and can be used to analyze the performance of the interpreter.
+    pub opcode_metrics: OpcodeMetrics,
 }
 
 /// The result of an interpreter operation.
@@ -60,6 +67,8 @@ pub struct InterpreterResult {
     pub output: Bytes,
     /// The gas usage information.
     pub gas: Gas,
+    /// The opcode metrics collected during the execution.
+    pub opcode_metrics: OpcodeMetrics,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -126,6 +135,7 @@ impl Interpreter {
             shared_memory: EMPTY_SHARED_MEMORY,
             stack: Stack::new(),
             next_action: InterpreterAction::None,
+            opcode_metrics: OpcodeMetrics::default(),
         }
     }
 
@@ -290,13 +300,36 @@ impl Interpreter {
         // Get current opcode.
         let opcode = unsafe { *self.instruction_pointer };
 
+        // Start timer for opcode metrics
+        let timer = Instant::now();
+
+        // Get gas before executing instruction.
+        let before_gas = self.gas.remaining();
+
         // SAFETY: In analysis we are doing padding of bytecode so that we are sure that last
         // byte instruction is STOP so we are safe to just increment program_counter bcs on last instruction
         // it will do noop and just stop execution of this contract
         self.instruction_pointer = unsafe { self.instruction_pointer.offset(1) };
 
         // execute instruction.
-        (instruction_table[opcode as usize])(self, host)
+        (instruction_table[opcode as usize])(self, host);
+
+        // Update gas metrics
+        let after_gas = self.gas.remaining();
+        let gas_used = before_gas - after_gas;
+
+        // Calculate elapsed time
+        let elapsed_nanos = timer.elapsed().as_nanos() as u64;
+
+        // Update opcode metrics
+        self.opcode_metrics.update_metrics(
+            opcode,
+            ExecutionMetric {
+                count: 1,
+                total_time: elapsed_nanos,
+                total_gas: gas_used,
+            },
+        );
     }
 
     /// Take memory and replace it with empty memory.
@@ -332,6 +365,7 @@ impl Interpreter {
                 // return empty bytecode
                 output: Bytes::new(),
                 gas: self.gas,
+                opcode_metrics: self.opcode_metrics.clone(),
             },
         }
     }

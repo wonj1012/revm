@@ -46,8 +46,13 @@ where
 impl<EXT, DB: Database + DatabaseCommit> Evm<'_, EXT, DB> {
     /// Commit the changes to the database.
     pub fn transact_commit(&mut self) -> Result<ExecutionResult, EVMError<DB::Error>> {
-        let ResultAndState { result, state } = self.transact()?;
+        let ResultAndState {
+            result,
+            state,
+            mut metrics,
+        } = self.transact()?;
         self.context.evm.db.commit(state);
+        metrics.save_metrics_to_file("metrics.txt")?;
         Ok(result)
     }
 }
@@ -180,7 +185,18 @@ impl<EXT, DB: Database> Evm<'_, EXT, DB> {
             .tx_against_state(&mut self.context)?;
 
         let output = self.transact_preverified_inner(initial_gas_spend);
-        self.handler.post_execution().end(&mut self.context, output)
+        match output {
+            Ok(mut metrics_output) => {
+                metrics_output.metrics.save_metrics_to_file("metrics.txt")?;
+                self.handler
+                    .post_execution()
+                    .end(&mut self.context, Ok(metrics_output))
+            }
+            Err(e) => {
+                eprintln!("Failed to save metrics");
+                self.handler.post_execution().end(&mut self.context, Err(e))
+            }
+        }
     }
 
     /// Modify spec id, this will create new EVM that matches this spec id.

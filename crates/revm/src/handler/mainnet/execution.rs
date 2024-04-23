@@ -154,6 +154,7 @@ mod tests {
                 result: instruction_result,
                 output: Bytes::new(),
                 gas,
+                opcode_metrics: Default::default(),
             },
             0..0,
         ));

@@ -4,11 +4,11 @@
 #![warn(rustdoc::all)]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 #![deny(unused_must_use, rust_2018_idioms)]
-#![cfg_attr(not(feature = "std"), no_std)]
+// #![cfg_attr(not(feature = "std"), no_std)]
 
-#[macro_use]
-#[cfg(not(feature = "std"))]
-extern crate alloc as std;
+// #[macro_use]
+// #[cfg(not(feature = "std"))]
+// extern crate alloc as std;
 
 pub mod blake2;
 pub mod bn128;

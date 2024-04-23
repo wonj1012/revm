@@ -59,6 +59,7 @@ fn return_inner(interpreter: &mut Interpreter, instruction_result: InstructionRe
             output,
             gas: interpreter.gas,
             result: instruction_result,
+            opcode_metrics: interpreter.opcode_metrics.clone(),
         },
     };
 }

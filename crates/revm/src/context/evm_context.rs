@@ -114,6 +114,7 @@ impl<DB: Database> EvmContext<DB> {
             result: InstructionResult::Return,
             gas,
             output: Bytes::new(),
+            opcode_metrics: Default::default(),
         };
 
         match out {
@@ -150,6 +151,7 @@ impl<DB: Database> EvmContext<DB> {
                     result: instruction_result,
                     gas,
                     output: Bytes::new(),
+                    opcode_metrics: Default::default(),
                 },
                 inputs.return_memory_offset.clone(),
             ))
