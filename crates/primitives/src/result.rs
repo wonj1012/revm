@@ -1,5 +1,9 @@
 use crate::{Address, Bytes, Log, State, U256};
 use core::fmt;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
 use std::{boxed::Box, string::String, vec::Vec};
 
 /// Result of EVM execution.
@@ -15,6 +19,8 @@ pub struct ResultAndState {
     pub result: ExecutionResult,
     /// State that got updated
     pub state: State,
+    /// metrics
+    pub metrics: OpcodeMetrics,
 }
 
 /// Result of a transaction execution.
@@ -182,6 +188,12 @@ impl<DBError> From<InvalidTransaction> for EVMError<DBError> {
 impl<DBError> From<InvalidHeader> for EVMError<DBError> {
     fn from(value: InvalidHeader) -> Self {
         Self::Header(value)
+    }
+}
+
+impl<DBError> From<std::io::Error> for EVMError<DBError> {
+    fn from(err: std::io::Error) -> Self {
+        EVMError::Custom(format!("IO error: {}", err))
     }
 }
 
@@ -431,4 +443,93 @@ pub enum OutOfGasError {
     // When performing something that takes a U256 and casts down to a u64, if its too large this would fire
     // i.e. in `as_usize_or_fail`
     InvalidOperand,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct OpcodeMetrics {
+    metrics: HashMap<u8, ExecutionMetric>,
+}
+
+impl OpcodeMetrics {
+    pub fn new() -> Self {
+        Self {
+            metrics: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, opcode: u8, metric: ExecutionMetric) {
+        self.metrics.insert(opcode, metric);
+    }
+
+    pub fn get(&self, opcode: u8) -> Option<&ExecutionMetric> {
+        self.metrics.get(&opcode)
+    }
+
+    pub fn get_mut(&mut self, opcode: u8) -> Option<&mut ExecutionMetric> {
+        self.metrics.get_mut(&opcode)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&u8, &ExecutionMetric)> {
+        self.metrics.iter()
+    }
+
+    pub fn update_metrics(&mut self, opcode: u8, metric: ExecutionMetric) {
+        if let Some(m) = self.metrics.get_mut(&opcode) {
+            m.count += metric.count;
+            m.total_time += metric.total_time;
+            m.total_gas += metric.total_gas;
+        } else {
+            self.insert(opcode, metric);
+        }
+    }
+
+    pub fn save_metrics_to_file(&mut self, file_path: &str) -> Result<(), std::io::Error> {
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(file_path)?;
+
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+
+        let mut existing_metrics: HashMap<u8, ExecutionMetric> = if !content.is_empty() {
+            serde_json::from_str(&content)?
+        } else {
+            HashMap::new()
+        };
+
+        // Update existing metrics with new data
+        for (opcode, new_metric) in &self.metrics {
+            existing_metrics
+                .entry(*opcode)
+                .and_modify(|e| {
+                    e.count += new_metric.count;
+                    e.total_time += new_metric.total_time;
+                    e.total_gas += new_metric.total_gas;
+                })
+                .or_insert_with(|| *new_metric);
+        }
+
+        // Write back to the file
+        let serialized = serde_json::to_string_pretty(&existing_metrics)?;
+        file.set_len(0)?; // Clear the file before writing
+        file.write_all(serialized.as_bytes())?;
+
+        Ok(())
+    }
+}
+
+impl Default for OpcodeMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]
+pub struct ExecutionMetric {
+    pub count: u64,
+    pub total_time: u64,
+    pub total_gas: u64,
 }
